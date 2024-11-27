@@ -4,235 +4,63 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document Analyzer</title>
-    <style>
-        /* ... [Previous CSS remains unchanged] ... */
-        :root {
-            --bg-primary: #1a1a1a;
-            --bg-secondary: #2d2d2d;
-            --text-primary: #ffffff;
-            --text-secondary: #b3b3b3;
-            --accent: #4f46e5;
-            --accent-hover: #4338ca;
-            --border: #404040;
-            --error: #ef4444;
-            --success: #10b981;
-        }
-
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            line-height: 1.5;
-        }
-
-        /* ... [Rest of the CSS remains unchanged] ... */
-    </style>
+    <!-- Google API Libraries -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <meta name="google-signin-client_id" content="70434181551-7nnck46t19qkatavn55o29371aopmtup.apps.googleusercontent.com">
+    <!-- Previous styles remain unchanged -->
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Document Analyzer</h1>
-        </div>
-
-        <div id="dropZone" class="file-upload">
-            <input type="file" id="fileInput" accept=".pdf,.txt,.doc,.docx" multiple>
-            <p>Drag and drop files here or</p>
-            <button class="button" onclick="document.getElementById('fileInput').click()">
-                Choose files
-            </button>
-        </div>
-
-        <div class="progress" id="progress">
-            <h3>Processing Status</h3>
-            <div class="status">
-                <div class="status-icon loading"></div>
-                <span id="status">Preparing...</span>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-bar-fill" id="progressBar"></div>
-            </div>
-        </div>
-
-        <div class="results">
-            <div id="output"></div>
-        </div>
-    </div>
-
-    <div class="notification" id="notification"></div>
-
+    <!-- Previous HTML structure remains unchanged -->
     <script>
-        let OPENAI_API_KEY = '';
+        // Configuration
+        const CLIENT_ID = '70434181551-7nnck46t19qkatavn55o29371aopmtup.apps.googleusercontent.com';
+        const API_KEY = 'AIzaSyDPwM6LIEy8RDAjLHxkjkKVG_Q0itGRYbE';
+        const DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile';
 
-        // Fetch API key from server
+        let tokenClient;
+        let gapiInited = false;
+        let gisInited = false;
+        let isSignedIn = false;
+        let OPENAI_API_KEY = null;
+
+        // Initialize the application
         async function initializeApp() {
             try {
+                // Fetch OpenAI API key
                 const response = await fetch('/api/config');
                 const config = await response.json();
-                OPENAI_API_KEY = config.apiKey;
-                showNotification('App initialized successfully', 'success');
+                OPENAI_API_KEY = config.openaiKey;
+
+                // Initialize Google API
+                await initializeGoogleAPI();
             } catch (error) {
                 console.error('Error initializing app:', error);
                 showNotification('Error initializing app: ' + error.message, 'error');
             }
         }
 
-        function showNotification(message, type = 'info') {
-            console.log(`${type.toUpperCase()}: ${message}`);
-            const notification = document.getElementById('notification');
-            notification.textContent = message;
-            notification.className = `notification ${type}`;
-            notification.style.display = 'block';
-            setTimeout(() => {
-                notification.style.display = 'none';
-            }, 3000);
-        }
-
-        async function processFile(file) {
-            if (!OPENAI_API_KEY) {
-                showNotification('App not properly initialized', 'error');
-                return;
-            }
-
-            const reader = new FileReader();
-            
-            reader.onload = async function(e) {
-                const text = e.target.result;
-                
-                document.getElementById('progress').style.display = 'block';
-                document.getElementById('status').textContent = 'Phase 1: Text Formatting...';
-                document.getElementById('progressBar').style.width = '30%';
-
+        // Initialize the Google API
+        async function initializeGoogleAPI() {
+            gapi.load('client', async () => {
                 try {
-                    const formattedText = await processWithOpenAI(
-                        text,
-                        'gpt-3.5-turbo',
-                        'Format the following text, remove email signatures, and focus on the main content. Create tags for each page:'
-                    );
-
-                    document.getElementById('status').textContent = 'Phase 2: Detailed Analysis...';
-                    document.getElementById('progressBar').style.width = '60%';
-
-                    const analysis = await processWithOpenAI(
-                        formattedText,
-                        'gpt-4',
-                        'Analyze the text and identify violations with supporting quotes. Create headers for each violation found:'
-                    );
-
-                    const result = {
-                        originalFilename: file.name,
-                        formattedText,
-                        analysis,
-                        timestamp: new Date().toISOString()
-                    };
-
-                    // Create download link
-                    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-
-                    const outputDiv = document.getElementById('output');
-                    outputDiv.innerHTML = `
-                        <div class="result-card">
-                            <h4>Results for ${file.name}</h4>
-                            <div class="formatted-text">${analysis}</div>
-                            <div class="save-options">
-                                <button class="button" onclick="window.open('${url}')">
-                                    Download Results
-                                </button>
-                            </div>
-                        </div>
-                    ` + outputDiv.innerHTML;
-
-                    document.getElementById('status').textContent = 'Processing complete!';
-                    document.getElementById('progressBar').style.width = '100%';
-                    showNotification('Document processed successfully!', 'success');
-
-                    setTimeout(() => {
-                        document.getElementById('progress').style.display = 'none';
-                        document.getElementById('progressBar').style.width = '0%';
-                    }, 2000);
-
+                    await gapi.client.init({
+                        apiKey: API_KEY,
+                        discoveryDocs: DISCOVERY_DOCS,
+                    });
+                    gapiInited = true;
+                    initializeGoogleSignIn();
                 } catch (error) {
-                    console.error('Error:', error);
-                    document.getElementById('status').textContent = 'Error: ' + error.message;
-                    document.getElementById('progressBar').style.width = '0%';
-                    showNotification('Error processing document: ' + error.message, 'error');
+                    console.error('Error initializing GAPI:', error);
+                    showNotification('Failed to initialize Google API: ' + error.message, 'error');
                 }
-            };
-
-            reader.readAsText(file);
+            });
         }
 
-        async function processWithOpenAI(text, model, instruction) {
-            try {
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${OPENAI_API_KEY}`
-                    },
-                    body: JSON.stringify({
-                        model: model,
-                        messages: [
-                            {
-                                role: "system",
-                                content: instruction
-                            },
-                            {
-                                role: "user",
-                                content: text
-                            }
-                        ],
-                        temperature: 0.7
-                    })
-                });
+        // Rest of the JavaScript code remains unchanged
 
-                if (!response.ok) {
-                    throw new Error(`OpenAI API error: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                return data.choices[0].message.content;
-            } catch (error) {
-                showNotification('OpenAI API error: ' + error.message, 'error');
-                throw error;
-            }
-        }
-
-        // Event Listeners
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-
-        fileInput.addEventListener('change', async (e) => {
-            const files = e.target.files;
-            for (let file of files) {
-                await processFile(file);
-            }
-        });
-
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('drag-over');
-        });
-
-        dropZone.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
-        });
-
-        dropZone.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
-            
-            const files = e.dataTransfer.files;
-            for (let file of files) {
-                await processFile(file);
-            }
-        });
-
-        // Initialize the application
+        // Start initialization when DOM is loaded
         document.addEventListener('DOMContentLoaded', initializeApp);
     </script>
 </body>

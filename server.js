@@ -9,7 +9,7 @@ app.use(express.static(path.join(__dirname)));
 // API endpoint to get OpenAI key
 app.get('/api/config', (req, res) => {
     res.json({
-        apiKey: process.env.OPENAI_API_KEY
+        openaiKey: process.env.OPENAI_API_KEY
     });
 });
 
